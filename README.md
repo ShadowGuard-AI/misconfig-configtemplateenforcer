@@ -1,3 +1,5 @@
+![Banner](banner.png)
+
 # misconfig-ConfigTemplateEnforcer
 Validates configuration files against predefined templates, ensuring adherence to organizational standards and preventing the use of deprecated or unsupported settings. - Focused on Check for misconfigurations in configuration files or infrastructure definitions
 
