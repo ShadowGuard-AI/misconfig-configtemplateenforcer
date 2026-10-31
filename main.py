@@ -47,12 +47,12 @@ def setup_argparse() -> argparse.ArgumentParser:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="Enable strict validation: all template keys must be present in the config file."
+        help="Enable strict validation: missing template keys fail (the default) and extra config keys fail as well."
     )
     parser.add_argument(
         "--ignore_missing",
         action="store_true",
-        help="Ignore missing keys in the config file if not present in the template."
+        help="Opt out of presence enforcement: missing template keys are warnings instead of failures."
     )
 
     return parser
@@ -160,13 +160,13 @@ def validate_config(config_data: dict, template_data: dict, strict: bool = False
     valid = True
     for key, template_value in template_data.items():
         if key not in config_data:
-            if strict:
-                logging.error(f"Missing key '{key}' in configuration (strict mode).")
+            if ignore_missing:
+                logging.warning(f"Missing key '{key}' in configuration (ignored because --ignore_missing was given).")
+            else:
+                logging.error(f"Missing key '{key}' in configuration.")
                 valid = False
-            elif not ignore_missing:
-                logging.warning(f"Missing key '{key}' in configuration.")
 
-            continue # Skip validation if the key is missing and not strict
+            continue # Skip value validation for a missing key
 
         config_value = config_data[key]
 
@@ -185,11 +185,15 @@ def validate_config(config_data: dict, template_data: dict, strict: bool = False
                 logging.error(f"Type mismatch for key '{key}': Expected {expected_type}, got {actual_type}.")
                 valid = False
 
-    if not strict and not ignore_missing:
-      # Check for extra keys in the config file that aren't in the template
-      for key in config_data:
+    # Check for extra keys in the config file that aren't in the template.
+    # They are warnings by default and failures in strict mode.
+    for key in config_data:
         if key not in template_data:
-          logging.warning(f"Extra key '{key}' found in configuration that isn't defined in the template.")
+            if strict:
+                logging.error(f"Extra key '{key}' found in configuration that isn't defined in the template (strict mode).")
+                valid = False
+            else:
+                logging.warning(f"Extra key '{key}' found in configuration that isn't defined in the template.")
 
     return valid
 
@@ -219,9 +223,28 @@ def main() -> None:
                 logging.error("Linting failed. Aborting validation.")
                 sys.exit(1)  # Exit with an error code
 
-        # Load configuration and template files
+        # Load configuration and template files. Each file is loaded in
+        # its own format: the config uses --file_type when given and its
+        # own extension otherwise, and the template is always inferred
+        # from the template file's own extension, so a JSON config can
+        # be validated against a YAML template and the other way round.
         config_data = load_file(args.config_file, file_type)
-        template_data = load_file(args.template_file, file_type)
+        template_data = load_file(args.template_file)
+
+        # An empty file loads as None. Name it as empty instead of
+        # letting it fail later with an internal NoneType message.
+        if config_data is None:
+            logging.error(f"Configuration file is empty: {args.config_file}")
+            sys.exit(1)
+        if template_data is None:
+            logging.error(f"Template file is empty: {args.template_file}")
+            sys.exit(1)
+        if not isinstance(config_data, dict):
+            logging.error(f"Configuration file did not contain a mapping of keys: {args.config_file}")
+            sys.exit(1)
+        if not isinstance(template_data, dict):
+            logging.error(f"Template file did not contain a mapping of keys: {args.template_file}")
+            sys.exit(1)
 
         # Validate the configuration
         if validate_config(config_data, template_data, args.strict, args.ignore_missing):
