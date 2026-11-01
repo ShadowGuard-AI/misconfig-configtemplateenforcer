@@ -170,6 +170,11 @@ def validate_config(config_data: dict, template_data: dict, strict: bool = False
 
         config_value = config_data[key]
 
+        # A template list gets no walk at all. The else branch below
+        # compares list against list as bare types, so a config list
+        # of the wrong item types, or the wrong length, passes a
+        # template that spelled out exactly what its items should
+        # look like.
         if isinstance(template_value, dict):
             if not isinstance(config_value, dict):
                 logging.error(f"Type mismatch for key '{key}': Expected dict, got {type(config_value)}.")
@@ -179,8 +184,18 @@ def validate_config(config_data: dict, template_data: dict, strict: bool = False
                 valid = False
         else:
             # Simple type comparison
+            # Only the type is compared, never the value. A template is
+            # an exemplar in my hands: a config whose port is a string of
+            # the right type in the template's sense passes with any
+            # number at all, and a template written to pin a value down
+            # to one allowed setting does not do that here.
             expected_type = type(template_value)
             actual_type = type(config_value)
+            # Exact type identity cuts both ways across formats: a whole
+            # number in a YAML template is an int, and the same number
+            # written 1.0 in a JSON config is a float, so two spellings of
+            # one value fail each other. Booleans at least stay distinct
+            # from ints here, because type(True) is not type(1).
             if expected_type != actual_type:
                 logging.error(f"Type mismatch for key '{key}': Expected {expected_type}, got {actual_type}.")
                 valid = False
@@ -219,6 +234,10 @@ def main() -> None:
 
         # Run linters if requested
         if args.lint:
+            # Only the config is linted, never the template it is judged
+            # against, and a missing linter binary counts the same as a
+            # failed lint: the run aborts before any validation, with the
+            # environment's gap reported as the config's failure.
             if not lint_file(args.config_file, file_type):
                 logging.error("Linting failed. Aborting validation.")
                 sys.exit(1)  # Exit with an error code
@@ -229,6 +248,10 @@ def main() -> None:
         # from the template file's own extension, so a JSON config can
         # be validated against a YAML template and the other way round.
         config_data = load_file(args.config_file, file_type)
+        # The template is always inferred from its own suffix. The
+        # file type option was applied to the config above and is
+        # not passed here, so a template with an unrecognised suffix
+        # cannot be rescued by the flag that rescued the config.
         template_data = load_file(args.template_file)
 
         # An empty file loads as None. Name it as empty instead of
